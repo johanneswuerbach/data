@@ -1,3 +1,4 @@
+![Ember Data Warning](docs/images/ember-data-in-progress.png)
 ## Ember Data [![Build Status](https://secure.travis-ci.org/emberjs/data.png?branch=master)](http://travis-ci.org/emberjs/data)
 
 Ember Data is a library for loading data from a persistence layer (such as
@@ -36,7 +37,13 @@ A [guide is provided on the Ember.js site](http://emberjs.com/guides/models/) th
 
 #### Getting ember-data
 
-Currently you must build ember-data.js yourself.  Clone the repository, run `bundle` then `rake dist`. You'll find ember-data.js in the `dist` directory.
+The latest passing build from the "master" branch is available on [builds.emberjs.com](http://builds.emberjs.com):
+
+[Development](http://builds.emberjs.com.s3.amazonaws.com/ember-data-latest.js)
+[Minified](http://builds.emberjs.com.s3.amazonaws.com/ember-data-latest.min.js)
+
+
+You also have the option to build ember-data.js yourself.  Clone the repository, run `bundle` then `rake dist`. You'll find ember-data.js in the `dist` directory.
 
 #### Roadmap
 

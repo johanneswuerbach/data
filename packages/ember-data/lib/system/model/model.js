@@ -9,7 +9,21 @@ var retrieveFromCurrentState = Ember.computed(function(key, value) {
   return get(get(this, 'stateManager.currentState'), key);
 }).property('stateManager.currentState').readOnly();
 
+/**
+
+  The model class that all Ember Data records descend from.
+
+  @module data
+  @submodule data-model
+  @main data-model
+
+  @class Model
+  @namespace DS
+  @extends Ember.Object
+  @constructor
+*/
 DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
+  isLoading: retrieveFromCurrentState,
   isLoaded: retrieveFromCurrentState,
   isReloading: retrieveFromCurrentState,
   isDirty: retrieveFromCurrentState,
@@ -18,6 +32,7 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
   isError: retrieveFromCurrentState,
   isNew: retrieveFromCurrentState,
   isValid: retrieveFromCurrentState,
+  dirtyType: retrieveFromCurrentState,
 
   clientId: null,
   id: null,
@@ -29,12 +44,12 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
     Create a JSON representation of the record, using the serialization
     strategy of the store's adapter.
 
-    Available options:
+    @method serialize
+    @param {Object} options Available options:
 
     * `includeId`: `true` if the record's ID should be included in the
       JSON representation.
 
-    @param {Object} options
     @returns {Object} an object whose values are primitive JSON values only
   */
   serialize: function(options) {
@@ -42,22 +57,75 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
     return store.serialize(this, options);
   },
 
+  /**
+    Use {{#crossLink "DS.JSONSerializer"}}DS.JSONSerializer{{/crossLink}} to
+    get the JSON representation of a record.
+
+    @method toJSON
+    @param {Object} options Available options:
+
+    * `includeId`: `true` if the record's ID should be included in the
+      JSON representation.
+
+    @returns {Object} A JSON representation of the object.
+  */
   toJSON: function(options) {
     var serializer = DS.JSONSerializer.create();
     return serializer.serialize(this, options);
   },
 
+  /**
+    Fired when the record is loaded from the server.
+
+    @event didLoad
+  */
   didLoad: Ember.K,
+
+  /**
+    Fired when the record is reloaded from the server.
+
+    @event didReload
+  */
   didReload: Ember.K,
+
+  /**
+    Fired when the record is updated.
+
+    @event didUpdate
+  */
   didUpdate: Ember.K,
+
+  /**
+    Fired when the record is created.
+
+    @event didCreate
+  */
   didCreate: Ember.K,
+
+  /**
+    Fired when the record is deleted.
+
+    @event didDelete
+  */
   didDelete: Ember.K,
+
+  /**
+    Fired when the record becomes invalid.
+
+    @event becameInvalid
+  */
   becameInvalid: Ember.K,
+
+  /**
+    Fired when the record enters the error state.
+
+    @event becameError
+  */
   becameError: Ember.K,
 
   data: Ember.computed(function() {
     if (!this._data) {
-      this.materializeData();
+      this.setupData();
     }
 
     return this._data;
@@ -87,7 +155,6 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
   },
 
   _setup: function() {
-    this._relationshipChanges = {};
     this._changesToSync = {};
   },
 
@@ -110,17 +177,6 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
 
   didChangeData: function() {
     this.send('didChangeData');
-  },
-
-  /**
-    Reload the record from the adapter.
-
-    This will only work if the record has already finished loading
-    and has not yet been modified (`isLoaded` but not `isDirty`,
-    or `isSaving`).
-  */
-  reload: function() {
-    this.send('reloadRecord');
   },
 
   deleteRecord: function() {
@@ -172,18 +228,19 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
   },
 
   dataDidChange: Ember.observer(function() {
+    this.reloadHasManys();
+    this.send('finishedMaterializing');
+  }, 'data'),
+
+  reloadHasManys: function() {
     var relationships = get(this.constructor, 'relationshipsByName');
-
     this.updateRecordArraysLater();
-
     relationships.forEach(function(name, relationship) {
       if (relationship.kind === 'hasMany') {
         this.hasManyDidChange(relationship.key);
       }
     }, this);
-
-    this.send('finishedMaterializing');
-  }, 'data'),
+  },
 
   hasManyDidChange: function(key) {
     var cachedValue = this.cacheFor(key);
@@ -214,7 +271,7 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
     Ember.run.once(this, this.updateRecordArrays);
   },
 
-  setupData: function(prematerialized) {
+  setupData: function() {
     this._data = {
       attributes: {},
       belongsTo: {},
@@ -319,10 +376,54 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
   becameInFlight: function() {
   },
 
-  // FOR USE BY THE BASIC ADAPTER
+  /**
+    @private
 
+  */
+  resolveWithEvent: function(successEvent) {
+    var model = this;
+
+    return new Ember.RSVP.Promise(function(resolve, reject) {
+      function success() {
+        this.off('becameError', error);
+        this.off('becameInvalid', error);
+        resolve(this);
+      }
+      function error() {
+        this.off(successEvent, success);
+        reject(this);
+      }
+
+      model.one(successEvent, success);
+      model.one('becameError', error);
+      model.one('becameInvalid', error);
+    });
+  },
+
+  /**
+    Save the record.
+
+    @method save
+  */
   save: function() {
     this.get('store').scheduleSave(this);
+
+    return this.resolveWithEvent('didCommit');
+  },
+
+  /**
+    Reload the record from the adapter.
+
+    This will only work if the record has already finished loading
+    and has not yet been modified (`isLoaded` but not `isDirty`,
+    or `isSaving`).
+
+    @method reload
+  */
+  reload: function() {
+    this.send('reloadRecord');
+
+    return this.resolveWithEvent('didReload');
   },
 
   // FOR USE DURING COMMIT PROCESS
@@ -343,10 +444,6 @@ DS.Model = Ember.Object.extend(Ember.Evented, LoadPromise, {
 
     this.updateRecordArraysLater();
   },
-
-  _reference: Ember.computed(function() {
-    return get(this, 'store').referenceForClientId(get(this, 'clientId'));
-  }),
 
   adapterDidInvalidate: function(errors) {
     this.send('becameInvalid', errors);
@@ -385,9 +482,40 @@ var storeAlias = function(methodName) {
 
 DS.Model.reopenClass({
   isLoaded: storeAlias('recordIsLoaded'),
+
+  /**
+    See {{#crossLink "DS.Store/find:method"}}`DS.Store.find()`{{/crossLink}}.
+
+    @method find
+    @param {Object|String|Array|null} query A query to find records by.
+
+  */
   find: storeAlias('find'),
+
+  /**
+    See {{#crossLink "DS.Store/all:method"}}`DS.Store.all()`{{/crossLink}}.
+
+    @method all
+    @return {DS.RecordArray}
+  */
   all: storeAlias('all'),
+
+  /**
+    See {{#crossLink "DS.Store/findQuery:method"}}`DS.Store.findQuery()`{{/crossLink}}.
+
+    @method query
+    @param {Object} query an opaque query to be used by the adapter
+    @return {DS.AdapterPopulatedRecordArray}
+  */
   query: storeAlias('findQuery'),
+
+  /**
+    See {{#crossLink "DS.Store/filter:method"}}`DS.Store.filter()`{{/crossLink}}.
+
+    @method filter
+    @param {Function} filter
+    @return {DS.FilteredRecordArray}
+  */
   filter: storeAlias('filter'),
 
   _create: DS.Model.create,
@@ -396,5 +524,13 @@ DS.Model.reopenClass({
     throw new Ember.Error("You should not call `create` on a model. Instead, call `createRecord` with the attributes you would like to set.");
   },
 
+  /**
+    See {{#crossLink "DS.Store/createRecord:method"}}`DS.Store.createRecord()`{{/crossLink}}.
+
+    @method createRecord
+    @param {Object} properties a hash of properties to set on the
+      newly created record.
+    @returns DS.Model
+  */
   createRecord: storeAlias('createRecord')
 });

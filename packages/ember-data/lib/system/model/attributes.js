@@ -1,6 +1,11 @@
-var get = Ember.get;
-
 require("ember-data/system/model/model");
+
+/**
+  @module data
+  @submodule data-model
+*/
+
+var get = Ember.get;
 
 DS.Model.reopenClass({
   attributes: Ember.computed(function() {
@@ -19,29 +24,6 @@ DS.Model.reopenClass({
   })
 });
 
-var AttributeChange = DS.AttributeChange = function(options) {
-  this.reference = options.reference;
-  this.store = options.store;
-  this.name = options.name;
-  this.oldValue = options.oldValue;
-};
-
-AttributeChange.createChange = function(options) {
-  return new AttributeChange(options);
-};
-
-AttributeChange.prototype = {
-  sync: function() {
-    this.store.recordAttributeDidChange(this.reference, this.name, this.value, this.oldValue);
-
-    // TODO: Use this object in the commit process
-    this.destroy();
-  },
-
-  destroy: function() {
-    delete this.store.recordForReference(this.reference)._changesToSync[this.name];
-  }
-};
 
 DS.Model.reopen({
   eachAttribute: function(callback, binding) {
@@ -67,7 +49,11 @@ function getAttr(record, options, key) {
   var value = attributes[key];
 
   if (value === undefined) {
-    value = options.defaultValue;
+    if (typeof options.defaultValue === "function") {
+      value = options.defaultValue();
+    } else {
+      value = options.defaultValue;
+    }
   }
 
   return value;

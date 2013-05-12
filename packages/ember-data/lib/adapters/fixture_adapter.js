@@ -2,6 +2,11 @@ require("ember-data/core");
 require("ember-data/system/adapter");
 require('ember-data/serializers/fixture_serializer');
 
+/**
+  @module data
+  @submodule data-adapters
+*/
+
 var get = Ember.get, fmt = Ember.String.fmt,
     dump = Ember.get(window, 'JSON.stringify') || function(object) { return object.toString(); };
 
@@ -14,6 +19,10 @@ var get = Ember.get, fmt = Ember.String.fmt,
   system would do. Its possible to do develop your entire application
   with `DS.FixtureAdapter`.
 
+  @class FixtureAdapter
+  @constructor
+  @namespace DS
+  @extends DS.Adapter
 */
 DS.FixtureAdapter = DS.Adapter.extend({
 
@@ -30,8 +39,9 @@ DS.FixtureAdapter = DS.Adapter.extend({
     if (type.FIXTURES) {
       var fixtures = Ember.A(type.FIXTURES);
       return fixtures.map(function(fixture){
-        if(!fixture.id){
-          throw new Error(fmt('the id property must be defined for fixture %@', [dump(fixture)]));
+        var fixtureIdType = typeof fixture.id;
+        if(fixtureIdType !== "number" && fixtureIdType !== "string"){
+          throw new Error(fmt('the id property must be defined as a number or string for fixture %@', [dump(fixture)]));
         }
         fixture.id = fixture.id + '';
         return fixture;
@@ -166,8 +176,6 @@ DS.FixtureAdapter = DS.Adapter.extend({
     @private
   */
  deleteLoadedFixture: function(type, record) {
-    var id = this.extractId(type, record);
-
     var existingFixture = this.findExistingFixture(type, record);
 
     if(existingFixture) {
@@ -185,8 +193,6 @@ DS.FixtureAdapter = DS.Adapter.extend({
   },
 
   findFixtureById: function(fixtures, id) {
-    var adapter = this;
-
     return Ember.A(fixtures).find(function(r) {
       if(''+get(r, 'id') === ''+id) {
         return true;

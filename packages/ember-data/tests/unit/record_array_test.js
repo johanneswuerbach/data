@@ -99,6 +99,10 @@ test("a newly created record is removed from a record array when it is deleted",
   scumbag.deleteRecord();
 
   equal(get(recordArray, 'length'), 3, "record is removed from the record array");
+
+  recordArray.objectAt(0).set('name', 'toto');
+
+  equal(get(recordArray, 'length'), 3, "record is still removed from the record array");
 });
 
 test("a record array returns undefined when asking for a member outside of its content Array's range", function() {
@@ -155,40 +159,3 @@ test("an AdapterPopulatedRecordArray knows if it's loaded or not", function() {
   var people = store.find(Person, { page: 1 });
   equal(get(people, 'isLoaded'), false, "The array is not yet loaded");
 });
-
-test("a record array that backs a collection view functions properly", function() {
-
-  var store = DS.Store.create();
-
-  store.load(Person, 5, { name: "Other Katz" });
-
-  var container = Ember.CollectionView.create({
-    content: store.all(Person)
-  });
-
-  container.appendTo('#qunit-fixture');
-
-  function compareArrays() {
-    var recordArray = container.content;
-    var content = recordArray.get('content');
-    for(var i = 0; i < content.length; i++) {
-      var clientId = content.objectAt(i).clientId;
-      var record = store.findByClientId(get(recordArray, 'type'), clientId);
-      equal(record && record.clientId, clientId, "The entries in the record cache should have matching client ids.");
-    }
-  }
-
-  compareArrays();
-
-  store.load(Person, 6, { name: "Scumbag Demon" });
-
-  compareArrays();
-
-  store.load(Person, 7, { name: "Lord British" });
-
-  compareArrays();
-
-  container.destroy();
-
-});
-

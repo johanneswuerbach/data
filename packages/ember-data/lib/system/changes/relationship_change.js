@@ -10,9 +10,10 @@ DS.RelationshipChange = function(options) {
   this.secondRecordReference = options.secondRecordReference;
   this.secondRecordKind = options.secondRecordKind;
   this.secondRecordName = options.secondRecordName;
-  this.store = options.store;
-  this.committed = {};
   this.changeType = options.changeType;
+  this.store = options.store;
+
+  this.committed = {};
 };
 
 DS.RelationshipChangeAdd = function(options){
@@ -55,7 +56,7 @@ DS.RelationshipChange._createChange = function(options){
 
 
 DS.RelationshipChange.determineRelationshipType = function(recordType, knownSide){
-  var knownKey = knownSide.key, key, type, otherKind;
+  var knownKey = knownSide.key, key, otherKind;
   var knownKind = knownSide.kind;
 
   var inverse = recordType.inverseFor(knownKey);
@@ -81,7 +82,7 @@ DS.RelationshipChange.determineRelationshipType = function(recordType, knownSide
 
 DS.RelationshipChange.createChange = function(firstRecordReference, secondRecordReference, store, options){
   // Get the type of the child based on the child's client ID
-  var firstRecordType = firstRecordReference.type, key, changeType;
+  var firstRecordType = firstRecordReference.type, changeType;
   changeType = DS.RelationshipChange.determineRelationshipType(firstRecordType, options);
   if (changeType === "oneToMany"){
     return DS.OneToManyChange.createChange(firstRecordReference, secondRecordReference, store, options);
@@ -141,14 +142,11 @@ DS.ManyToNoneChange.createChange = function(childReference, parentReference, sto
 
 /** @private */
 DS.ManyToManyChange.createChange = function(childReference, parentReference, store, options) {
-  // Get the type of the child based on the child's client ID
-  var childType = childReference.type, key;
-
   // If the name of the belongsTo side of the relationship is specified,
   // use that
   // If the type of the parent is specified, look it up on the child's type
   // definition.
-  key = options.key;
+  var key = options.key;
 
   var change = DS.RelationshipChange._createChange({
       parentReference: parentReference,
@@ -170,8 +168,7 @@ DS.ManyToManyChange.createChange = function(childReference, parentReference, sto
 
 /** @private */
 DS.OneToOneChange.createChange = function(childReference, parentReference, store, options) {
-  // Get the type of the child based on the child's client ID
-  var childType = childReference.type, key;
+  var key;
 
   // If the name of the belongsTo side of the relationship is specified,
   // use that
@@ -222,8 +219,7 @@ DS.OneToOneChange.maintainInvariant = function(options, store, childReference, k
 
 /** @private */
 DS.OneToManyChange.createChange = function(childReference, parentReference, store, options) {
-  // Get the type of the child based on the child's client ID
-  var childType = childReference.type, key;
+  var key;
 
   // If the name of the belongsTo side of the relationship is specified,
   // use that
@@ -250,7 +246,7 @@ DS.OneToManyChange.createChange = function(childReference, parentReference, stor
       firstRecordName:  key
   });
 
-  store.addRelationshipChangeFor(childReference, key, parentReference, null, change);
+  store.addRelationshipChangeFor(childReference, key, parentReference, change.getSecondRecordName(), change);
 
 
   return change;
@@ -258,8 +254,9 @@ DS.OneToManyChange.createChange = function(childReference, parentReference, stor
 
 
 DS.OneToManyChange.maintainInvariant = function(options, store, childReference, key){
-  if (options.changeType === "add" && store.recordIsMaterialized(childReference)) {
-    var child = store.recordForReference(childReference);
+  var child = childReference.record;
+
+  if (options.changeType === "add" && child) {
     var oldParent = get(child, key);
     if (oldParent){
       var correspondingChange = DS.OneToManyChange.createChange(childReference, oldParent.get('_reference'), store, {
@@ -268,28 +265,26 @@ DS.OneToManyChange.maintainInvariant = function(options, store, childReference, 
           changeType: "remove",
           key: options.key
         });
-      store.addRelationshipChangeFor(childReference, key, options.parentReference , null, correspondingChange);
+      store.addRelationshipChangeFor(childReference, key, options.parentReference, correspondingChange.getSecondRecordName(), correspondingChange);
       correspondingChange.sync();
     }
   }
 };
 
-DS.OneToManyChange.ensureSameTransaction = function(changes, store){
+DS.OneToManyChange.ensureSameTransaction = function(changes){
   var records = Ember.A();
   forEach(changes, function(change){
     records.addObject(change.getSecondRecord());
     records.addObject(change.getFirstRecord());
   });
-  var transaction = store.ensureSameTransaction(records);
-  forEach(changes, function(change){
-    change.transaction = transaction;
- });
+
+  return DS.Transaction.ensureSameTransaction(records);
 };
 
 DS.RelationshipChange.prototype = {
 
   getSecondRecordName: function() {
-    var name = this.secondRecordName, store = this.store, parent;
+    var name = this.secondRecordName, parent;
 
     if (!name) {
       parent = this.secondRecordReference;
@@ -318,14 +313,9 @@ DS.RelationshipChange.prototype = {
     var childReference = this.childReference,
         belongsToName = this.getFirstRecordName(),
         hasManyName = this.getSecondRecordName(),
-        store = this.store,
-        child, oldParent, newParent, lastParent, transaction;
+        store = this.store;
 
     store.removeRelationshipChangeFor(childReference, belongsToName, this.parentReference, hasManyName, this.changeType);
-
-    if (transaction = this.transaction) {
-      transaction.relationshipBecameClean(this);
-    }
   },
 
   /** @private */
@@ -335,8 +325,8 @@ DS.RelationshipChange.prototype = {
     // return null or undefined if the original reference was null or undefined
     if (!reference) { return reference; }
 
-    if (store.recordIsMaterialized(reference)) {
-      return store.recordForReference(reference);
+    if (reference.record) {
+      return reference.record;
     }
   },
 
@@ -361,16 +351,14 @@ DS.RelationshipChange.prototype = {
     var child = this.getFirstRecord(),
       parentRecord = this.getSecondRecord();
 
-    var transaction = this.store.ensureSameTransaction([child, parentRecord]);
+    var transaction = DS.Transaction.ensureSameTransaction([child, parentRecord]);
 
     this.transaction = transaction;
     return transaction;
   },
 
   callChangeEvents: function(){
-    var hasManyName = this.getSecondRecordName(),
-        belongsToName = this.getFirstRecordName(),
-        child = this.getFirstRecord(),
+    var child = this.getFirstRecord(),
         parentRecord = this.getSecondRecord();
 
     var dirtySet = new Ember.OrderedSet();
@@ -419,8 +407,7 @@ DS.RelationshipChangeAdd.prototype.sync = function() {
   //Ember.assert("You specified a hasMany (" + hasManyName + ") on " + (!belongsToName && (newParent || oldParent || this.lastParent).constructor) + " but did not specify an inverse belongsTo on " + child.constructor, belongsToName);
   //Ember.assert("You specified a belongsTo (" + belongsToName + ") on " + child.constructor + " but did not specify an inverse hasMany on " + (!hasManyName && (newParent || oldParent || this.lastParentRecord).constructor), hasManyName);
 
-  var transaction = this.ensureSameTransaction();
-  transaction.relationshipBecameDirty(this);
+  this.ensureSameTransaction();
 
   this.callChangeEvents();
 
@@ -444,7 +431,7 @@ DS.RelationshipChangeAdd.prototype.sync = function() {
         set(firstRecord, firstRecordName, secondRecord);
       });
     }
-    else if(this.firstdRecordKind === "hasMany"){
+    else if(this.firstRecordKind === "hasMany"){
       firstRecord.suspendRelationshipObservers(function(){
         get(firstRecord, firstRecordName).addObject(secondRecord);
       });
@@ -464,8 +451,7 @@ DS.RelationshipChangeRemove.prototype.sync = function() {
   //Ember.assert("You specified a hasMany (" + hasManyName + ") on " + (!belongsToName && (newParent || oldParent || this.lastParent).constructor) + " but did not specify an inverse belongsTo on " + child.constructor, belongsToName);
   //Ember.assert("You specified a belongsTo (" + belongsToName + ") on " + child.constructor + " but did not specify an inverse hasMany on " + (!hasManyName && (newParent || oldParent || this.lastParentRecord).constructor), hasManyName);
 
-  var transaction = this.ensureSameTransaction(firstRecord, secondRecord, secondRecordName, firstRecordName);
-  transaction.relationshipBecameDirty(this);
+  this.ensureSameTransaction(firstRecord, secondRecord, secondRecordName, firstRecordName);
 
   this.callChangeEvents();
 
@@ -488,7 +474,7 @@ DS.RelationshipChangeRemove.prototype.sync = function() {
         set(firstRecord, firstRecordName, null);
       });
      }
-     else if(this.firstdRecordKind === "hasMany"){
+     else if(this.firstRecordKind === "hasMany"){
        firstRecord.suspendRelationshipObservers(function(){
         get(firstRecord, firstRecordName).removeObject(secondRecord);
       });

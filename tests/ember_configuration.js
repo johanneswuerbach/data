@@ -95,6 +95,7 @@
     });
 
     DS.Store.reopen({
+      save: syncForTest(),
       createRecord: syncForTest(),
       deleteRecord: syncForTest(),
       load: syncForTest(),
@@ -118,6 +119,8 @@
       dataDidChange: Ember.observer(syncForTest(), 'data'),
       updateRecordArraysLater: syncForTest()
     });
+
+    Ember.RSVP.Promise.prototype.then = syncForTest(Ember.RSVP.Promise.prototype.then);
 
     DS.RecordArray.reopen({
       then: syncForTest()

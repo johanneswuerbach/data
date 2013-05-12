@@ -1,9 +1,19 @@
 require('ember-data/system/serializer');
 require('ember-data/transforms/json_transforms');
 
-var get = Ember.get, set = Ember.set;
+/**
+  @module data
+  @submodule data-serializers
+*/
 
-var generatedId = 0;
+/**
+  @class JSONSerializer
+  @constructor
+  @namespace DS
+  @extends DS.Serializer
+*/
+
+var get = Ember.get, set = Ember.set;
 
 DS.JSONSerializer = DS.Serializer.extend({
   init: function() {
@@ -13,6 +23,9 @@ DS.JSONSerializer = DS.Serializer.extend({
       this.set('transforms', DS.JSONTransforms);
     }
 
+    this.sideloadMapping = Ember.Map.create();
+    this.metadataMapping = Ember.Map.create();
+
     this.configure({
       meta: 'meta',
       since: 'since'
@@ -20,7 +33,13 @@ DS.JSONSerializer = DS.Serializer.extend({
   },
 
   configure: function(type, configuration) {
+    var key;
+
     if (type && !configuration) {
+      for(key in type){
+        this.metadataMapping.set(get(type, key), key);
+      }
+
       return this._super(type);
     }
 
@@ -51,18 +70,6 @@ DS.JSONSerializer = DS.Serializer.extend({
   */
   addAttribute: function(hash, key, value) {
     hash[key] = value;
-  },
-
-  /**
-    @private
-
-    Creates an empty hash that will be filled in by the hooks called from the
-    `serialize()` method.
-
-    @return {Object}
-  */
-  createSerializedForm: function() {
-    return {};
   },
 
   extractAttribute: function(type, hash, attributeName) {
@@ -127,7 +134,7 @@ DS.JSONSerializer = DS.Serializer.extend({
       if (relationship.options && relationship.options.polymorphic && !Ember.isNone(id)) {
         this.addBelongsToPolymorphic(hash, key, id, child.constructor);
       } else {
-        hash[key] = id === undefined ? null : id;
+        hash[key] = id === undefined ? null : this.serializeId(id);
       }
     }
   },
@@ -220,12 +227,18 @@ DS.JSONSerializer = DS.Serializer.extend({
   },
 
   extractMeta: function(loader, type, json) {
-    var meta = json[this.configOption(type, 'meta')], since;
-    if (!meta) { return; }
+    var meta = this.configOption(type, 'meta'),
+        data = json, value;
 
-    if (since = meta[this.configOption(type, 'since')]) {
-      loader.sinceForType(type, since);
+    if(meta && json[meta]){
+      data = json[meta];
     }
+
+    this.metadataMapping.forEach(function(property, key){
+      if(value = data[property]){
+        loader.metaForType(type, key, value);
+      }
+    });
   },
 
   extractEmbeddedType: function(relationship, data) {
@@ -265,7 +278,7 @@ DS.JSONSerializer = DS.Serializer.extend({
     for (var prop in json) {
       if (!json.hasOwnProperty(prop) ||
           prop === root ||
-          prop === this.configOption(type, 'meta')) {
+          !!this.metadataMapping.get(prop)) {
         continue;
       }
 
@@ -318,7 +331,9 @@ DS.JSONSerializer = DS.Serializer.extend({
 
     @returns {String} the key
   */
-  keyForPolymorphicId: Ember.K,
+  keyForPolymorphicId: function(key){
+    return key;
+  },
 
   /**
     A hook you can use in your serializer subclass to customize
@@ -328,7 +343,9 @@ DS.JSONSerializer = DS.Serializer.extend({
 
     @returns {String} the key
   */
-  keyForPolymorphicType: Ember.K,
+  keyForPolymorphicType: function(key){
+    return this.keyForPolymorphicId(key) + '_type';
+  },
 
   /**
     A hook you can use in your serializer subclass to customize

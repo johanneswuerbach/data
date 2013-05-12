@@ -1,6 +1,7 @@
 {
     "predef": [
         "console",
+        "requireModule",
         "Ember",
         "DS",
         "Handlebars",
@@ -11,6 +12,7 @@
         "ember_deprecateFunc",
         "require",
         "equal",
+        "notEqual",
         "asyncTest",
         "test",
         "raises",
